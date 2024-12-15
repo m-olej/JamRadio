@@ -1,0 +1,4 @@
+jam_client/target/*
+server/build/*
+
+tests

@@ -1,33 +1,46 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::io;
 
-fn main() {
-    let server_address = "127.0.0.1:2137";
+use ratatui::{backend::CrosstermBackend, Terminal};
 
-    // Connect to the server
-    match TcpStream::connect(server_address) {
-        Ok(mut stream) => {
-            println!("Successfully connected to server at {}", server_address);
+use crate::{
+    app::{App, AppResult},
+    event::{Event, EventHandler},
+    handler::handle_key_events,
+    tui::Tui,
+};
 
-            // Send a message to the server
-            let message = "Hello, Server!";
-            stream.write_all(message.as_bytes()).unwrap();
-            println!("Sent message: {}", message);
+pub mod app;
+pub mod event;
+pub mod handler;
+pub mod tui;
+pub mod ui;
 
-            // Wait for a response from the server
-            let mut buffer = [0; 512];
-            match stream.read(&mut buffer) {
-                Ok(size) => {
-                    let response = String::from_utf8_lossy(&buffer[..size]);
-                    println!("Received from server: {}", response);
-                }
-                Err(e) => {
-                    eprintln!("Failed to receive data: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to connect to server: {}", e);
+#[tokio::main]
+async fn main() -> AppResult<()> {
+    // Create an application.
+    let mut app = App::new();
+
+    // Initialize the terminal user interface.
+    let backend = CrosstermBackend::new(io::stdout());
+    let terminal = Terminal::new(backend)?;
+    let events = EventHandler::new(250);
+    let mut tui = Tui::new(terminal, events);
+    tui.init()?;
+
+    // Start the main loop.
+    while app.running {
+        // Render the user interface.
+        tui.draw(&mut app)?;
+        // Handle events.
+        match tui.events.next().await? {
+            Event::Tick => app.tick(),
+            Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
+            Event::Mouse(_) => {}
+            Event::Resize(_, _) => {}
         }
     }
+
+    // Exit the user interface.
+    tui.exit()?;
+    Ok(())
 }
