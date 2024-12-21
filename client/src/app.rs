@@ -1,5 +1,7 @@
 use std::error;
 
+use ratatui::widgets::ListState;
+
 /// Application result type.
 pub type AppResult<T> = std::result::Result<T, Box<dyn error::Error>>;
 
@@ -10,8 +12,12 @@ pub struct App {
     pub running: bool,
     /// counter
     pub counter: u8,
-    // Which file explorer is selected
-    // 0 -> server | 1 -> client
+    /// Clients File Explorer State
+    pub client_fs_state: ListState,
+    /// Servers File Explorer State
+    pub server_fs_state: ListState,
+    /// Which file explorer is selected
+    /// 0 -> server | 1 -> client
     pub client_fs_selected: bool,
 }
 
@@ -20,7 +26,9 @@ impl Default for App {
         Self {
             running: true,
             counter: 0,
-            client_fs_selected: false,
+            client_fs_state: ListState::default(),
+            server_fs_state: ListState::default(),
+            client_fs_selected: true,
         }
     }
 }
@@ -51,7 +59,30 @@ impl App {
         }
     }
 
+    pub fn handle_fs_state(&mut self, direction: &str) {
+        if self.client_fs_selected {
+            if direction == "down" {
+                self.client_fs_state.select_next();
+            } else {
+                self.client_fs_state.select_previous();
+            }
+        } else {
+            if direction == "down" {
+                self.server_fs_state.select_next();
+            } else {
+                self.server_fs_state.select_previous();
+            }
+        }
+    }
+
     pub fn switch_fs(&mut self) {
         self.client_fs_selected = !self.client_fs_selected;
+        if self.client_fs_selected {
+            *self.server_fs_state.selected_mut() = None;
+            *self.client_fs_state.selected_mut() = Some(0);
+        } else {
+            *self.server_fs_state.selected_mut() = Some(0);
+            *self.client_fs_state.selected_mut() = None;
+        }
     }
 }

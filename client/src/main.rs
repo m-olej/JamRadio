@@ -1,4 +1,5 @@
 use std::io;
+mod lib;
 
 use ratatui::{backend::CrosstermBackend, Terminal};
 

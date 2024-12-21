@@ -21,7 +21,12 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
         KeyCode::Left => {
             app.decrement_counter();
         }
-        // Other handlers you could add here.
+        KeyCode::Up => {
+            app.handle_fs_state("up");
+        }
+        KeyCode::Down => {
+            app.handle_fs_state("down");
+        }
         KeyCode::Tab => {
             app.switch_fs();
         }

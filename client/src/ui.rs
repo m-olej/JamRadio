@@ -1,16 +1,16 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, BorderType, Gauge, Paragraph},
+    style::{Color, Style, Stylize},
+    widgets::{Block, BorderType, Gauge, List, ListDirection, Paragraph},
     Frame,
 };
 
 use crate::app::App;
+use crate::lib::FileExplorer;
 
 // Custom widgets
 
-// client file explorer
-
+// pub struct FileExplorer {} // File explorer wiget
 pub struct SongProgress {} // Status bar of song lenght [Gauge]
 pub struct ServerSongLibrary {} // Custom List from Server Song Library info
 pub struct SongCard {} // Song Card
@@ -53,27 +53,50 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             .style(default_style),
         server_layout[0],
     );
-    frame.render_widget(
-        Paragraph::new(format!(
-            "This is a tui template.\n\
-                Press `Esc`, `Ctrl-C` or `q` to stop running.\n\
-                Press left and right to increment and decrement the counter respectively.\n\
-                Counter: {}",
-            app.counter
-        ))
-        .block(
-            Block::bordered()
-                .title("Template")
-                .title_alignment(Alignment::Center)
-                .border_type(BorderType::Rounded),
-        )
-        .style(default_style)
-        .centered(),
+
+    // ToDo: Get songs from server via async Tokio receiver
+    let server_items = FileExplorer::get_dir_contents("./songs");
+
+    let server_list = List::new(server_items);
+
+    frame.render_stateful_widget(
+        server_list
+            .block(
+                Block::bordered()
+                    .title("Songs to send")
+                    .border_type(BorderType::Rounded)
+                    .title_alignment(Alignment::Center),
+            )
+            .style(default_style)
+            .highlight_style(Style::new().italic())
+            .highlight_symbol(">> ")
+            .repeat_highlight_symbol(true)
+            .direction(ListDirection::TopToBottom),
         server_layout[1],
+        &mut app.server_fs_state,
     );
 
+    let client_items = FileExplorer::get_dir_contents("./songs");
+
+    let client_list = List::new(client_items);
+
     // Client File Explorer
-    frame.render_widget(&app.client_file_explorer.widget(), fs_layout[1]);
+    frame.render_stateful_widget(
+        client_list
+            .block(
+                Block::bordered()
+                    .title("Songs to send")
+                    .border_type(BorderType::Rounded)
+                    .title_alignment(Alignment::Center),
+            )
+            .style(default_style)
+            .highlight_style(Style::new().italic())
+            .highlight_symbol(">> ")
+            .repeat_highlight_symbol(true)
+            .direction(ListDirection::TopToBottom),
+        fs_layout[1],
+        &mut app.client_fs_state,
+    );
 
     // Queue
     frame.render_widget(
