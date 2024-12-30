@@ -35,4 +35,14 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
     Ok(())
 }
 
-pub fn handle_network_communication(message: [u8; 1024], app: &mut App) {}
+pub fn handle_network_communication(message: &[u8; 1024], app: &mut App) {
+    let update_string = match std::str::from_utf8(message) {
+        Ok(update_string) => update_string,
+        Err(err) => {
+            eprintln!("Failed to parse message: {}", err);
+            "ki chuj"
+        }
+    };
+    // Parse properly
+    app.state.active_listeners = update_string.chars().nth(21).unwrap();
+}

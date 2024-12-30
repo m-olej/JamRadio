@@ -1,9 +1,23 @@
-use std::error;
+use std::{char, error};
 
 use ratatui::widgets::ListState;
 
 /// Application result type.
 pub type AppResult<T> = std::result::Result<T, Box<dyn error::Error>>;
+
+// Information given with server updates
+#[derive(Debug)]
+pub struct ServerState {
+    pub active_listeners: char,
+}
+
+impl Default for ServerState {
+    fn default() -> Self {
+        Self {
+            active_listeners: '0',
+        }
+    }
+}
 
 /// Application.
 #[derive(Debug)]
@@ -19,6 +33,8 @@ pub struct App {
     /// Which file explorer is selected
     /// 0 -> server | 1 -> client
     pub client_fs_selected: bool,
+
+    pub state: ServerState,
 }
 
 impl Default for App {
@@ -29,6 +45,7 @@ impl Default for App {
             client_fs_state: ListState::default(),
             server_fs_state: ListState::default(),
             client_fs_selected: true,
+            state: ServerState::default(),
         }
     }
 }

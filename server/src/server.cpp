@@ -24,8 +24,6 @@ public:
 
   int getActiveListeners() const { return clients.size(); };
 
-  void ping_pong() {};
-
   const std::map<int, sockaddr_in> &getClients() const { return clients; }
 };
 

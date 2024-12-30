@@ -41,7 +41,7 @@ async fn main() -> AppResult<()> {
             Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
             Event::Mouse(_) => {}
             Event::Resize(_, _) => {}
-            Event::Net(message) => handle_network_communication(message, &mut app),
+            Event::Net(message) => handle_network_communication(&message, &mut app),
         }
     }
 

@@ -61,8 +61,9 @@ impl EventHandler {
                                 continue;
                             }
                             Ok(n) => {
-                                let data = update_buf[..n].try_into().unwrap_or([0;1024]);
+                                let data = update_buf;
                                 let _ = _sender.send(Event::Net(data));
+                                // If n == 1024 check for rest of message if neccessary
                             }
                             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                                 // no new data in socket
