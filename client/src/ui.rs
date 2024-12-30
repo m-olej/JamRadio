@@ -48,9 +48,12 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     // Server File Explorer
     frame.render_widget(
-        Paragraph::new(format!("Active listeners: {}", app.state.active_listeners))
-            .block(Block::bordered().border_type(BorderType::Rounded))
-            .style(default_style),
+        Paragraph::new(format!(
+            "Active listeners: {}",
+            app.state.active_listeners.to_string()
+        ))
+        .block(Block::bordered().border_type(BorderType::Rounded))
+        .style(default_style),
         server_layout[0],
     );
 

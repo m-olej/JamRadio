@@ -1,5 +1,6 @@
-use crate::app::{App, AppResult};
+use crate::app::{App, AppResult, ServerState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use serde::Deserializer;
 
 /// Handles the key events and updates the state of [`App`].
 pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
@@ -13,13 +14,6 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
             if key_event.modifiers == KeyModifiers::CONTROL {
                 app.quit();
             }
-        }
-        // Counter handlers
-        KeyCode::Right => {
-            app.increment_counter();
-        }
-        KeyCode::Left => {
-            app.decrement_counter();
         }
         KeyCode::Up => {
             app.handle_fs_state("up");
@@ -36,13 +30,18 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
 }
 
 pub fn handle_network_communication(message: &[u8; 1024], app: &mut App) {
-    let update_string = match std::str::from_utf8(message) {
-        Ok(update_string) => update_string,
+    // Convert array of u8 to json string
+    let trimmed_message = message.split(|&byte| byte == 0).next().unwrap_or(message);
+    let update_string = match std::str::from_utf8(trimmed_message) {
+        Ok(update_string) => update_string.trim(),
         Err(err) => {
             eprintln!("Failed to parse message: {}", err);
             "ki chuj"
         }
     };
-    // Parse properly
-    app.state.active_listeners = update_string.chars().nth(21).unwrap();
+
+    // convert json String to ServerState data strucure
+    let server_state: ServerState = serde_json::from_str(update_string).unwrap();
+
+    app.update_state(server_state);
 }

@@ -1,20 +1,20 @@
-use std::{char, error};
-
 use ratatui::widgets::ListState;
+use serde::{Deserialize, Serialize};
+use std::{char, error};
 
 /// Application result type.
 pub type AppResult<T> = std::result::Result<T, Box<dyn error::Error>>;
 
 // Information given with server updates
-#[derive(Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct ServerState {
-    pub active_listeners: char,
+    pub active_listeners: u8,
 }
 
 impl Default for ServerState {
     fn default() -> Self {
         Self {
-            active_listeners: '0',
+            active_listeners: 0,
         }
     }
 }
@@ -64,18 +64,6 @@ impl App {
         self.running = false;
     }
 
-    pub fn increment_counter(&mut self) {
-        if let Some(res) = self.counter.checked_add(1) {
-            self.counter = res;
-        }
-    }
-
-    pub fn decrement_counter(&mut self) {
-        if let Some(res) = self.counter.checked_sub(1) {
-            self.counter = res;
-        }
-    }
-
     pub fn handle_fs_state(&mut self, direction: &str) {
         if self.client_fs_selected {
             if direction == "down" {
@@ -101,5 +89,9 @@ impl App {
             *self.server_fs_state.selected_mut() = Some(0);
             *self.client_fs_state.selected_mut() = None;
         }
+    }
+
+    pub fn update_state(&mut self, state: ServerState) {
+        self.state = state;
     }
 }

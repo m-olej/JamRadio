@@ -139,11 +139,10 @@ public:
     Json updateJson;
     int activeListeners = clientManager.getActiveListeners();
     std::cout << updateJson.toString() << std::endl;
-    updateJson["activeListeners"] = Json(activeListeners);
+    updateJson["active_listeners"] = Json(activeListeners);
     std::string update = updateJson.toString();
 
     std::cout << update << std::endl;
-    char test[5] = "test";
 
     for (const auto &client : clientManager.getClients()) {
       send(client.first, update.c_str(), update.size(), 0);
