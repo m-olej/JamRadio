@@ -14,6 +14,7 @@ use crate::{
 pub mod app;
 pub mod event;
 pub mod handler;
+pub mod lib;
 pub mod tui;
 pub mod ui;
 

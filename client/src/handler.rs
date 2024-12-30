@@ -1,6 +1,5 @@
 use crate::app::{App, AppResult};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tokio::net::{TcpSocket, TcpStream};
 
 /// Handles the key events and updates the state of [`App`].
 pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
@@ -36,4 +35,4 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> AppResult<()> {
     Ok(())
 }
 
-pub fn handle_network_communication(connection: TcpStream, app: &mut App) {}
+pub fn handle_network_communication(message: [u8; 1024], app: &mut App) {}

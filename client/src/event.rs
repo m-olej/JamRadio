@@ -1,10 +1,8 @@
-use std::io::IoSliceMut;
 use std::time::Duration;
 
 use crossterm::event::{Event as CrosstermEvent, KeyEvent, MouseEvent};
 use futures::{FutureExt, StreamExt};
-use tokio::io::Interest;
-use tokio::net::{TcpSocket, TcpStream};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 use crate::app::AppResult;
@@ -21,7 +19,7 @@ pub enum Event {
     /// Terminal resize.
     Resize(u16, u16),
     /// Network communication
-    Net(Vec<u8>),
+    Net([u8; 1024]),
 }
 
 /// Terminal event handler.
@@ -48,7 +46,7 @@ impl EventHandler {
             loop {
                 let tick_delay = tick.tick();
                 let crossterm_event = reader.next().fuse();
-                let update = stream.tr
+                let mut update_buf = [0; 1024];
                 tokio::select! {
                   _ = _sender.closed() => {
                     break;
@@ -56,7 +54,25 @@ impl EventHandler {
                   _ = tick_delay => {
                     _sender.send(Event::Tick).unwrap();
                   }
-                  
+                result = async { stream.try_read(&mut update_buf) } => {
+                    match result {
+                            Ok(0) => {
+                                // connection closed
+                                continue;
+                            }
+                            Ok(n) => {
+                                let data = update_buf[..n].try_into().unwrap_or([0;1024]);
+                                let _ = _sender.send(Event::Net(data));
+                            }
+                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                // no new data in socket
+                                continue;
+                            }
+                            Err(err) => {
+                            eprintln!("Failed to read from stream: {}", err);
+                            }
+                        }
+                }
                 Some(Ok(evt)) = crossterm_event => {
                     match evt {
                       CrosstermEvent::Key(key) => {
