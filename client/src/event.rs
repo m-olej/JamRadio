@@ -1,7 +1,10 @@
+use std::io::IoSliceMut;
 use std::time::Duration;
 
 use crossterm::event::{Event as CrosstermEvent, KeyEvent, MouseEvent};
 use futures::{FutureExt, StreamExt};
+use tokio::io::Interest;
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 
 use crate::app::AppResult;
@@ -17,6 +20,8 @@ pub enum Event {
     Mouse(MouseEvent),
     /// Terminal resize.
     Resize(u16, u16),
+    /// Network communication
+    Net(Vec<u8>),
 }
 
 /// Terminal event handler.
@@ -33,7 +38,7 @@ pub struct EventHandler {
 
 impl EventHandler {
     /// Constructs a new instance of [`EventHandler`].
-    pub fn new(tick_rate: u64) -> Self {
+    pub fn new(tick_rate: u64, stream: TcpStream) -> Self {
         let tick_rate = Duration::from_millis(tick_rate);
         let (sender, receiver) = mpsc::unbounded_channel();
         let _sender = sender.clone();
@@ -43,6 +48,7 @@ impl EventHandler {
             loop {
                 let tick_delay = tick.tick();
                 let crossterm_event = reader.next().fuse();
+                let update = stream.tr
                 tokio::select! {
                   _ = _sender.closed() => {
                     break;
@@ -50,7 +56,8 @@ impl EventHandler {
                   _ = tick_delay => {
                     _sender.send(Event::Tick).unwrap();
                   }
-                  Some(Ok(evt)) = crossterm_event => {
+                  
+                Some(Ok(evt)) = crossterm_event => {
                     match evt {
                       CrosstermEvent::Key(key) => {
                         if key.kind == crossterm::event::KeyEventKind::Press {

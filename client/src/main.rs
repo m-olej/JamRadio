@@ -1,7 +1,8 @@
 use std::io;
-mod lib;
 
+use handler::handle_network_communication;
 use ratatui::{backend::CrosstermBackend, Terminal};
+use tokio::net::TcpStream;
 
 use crate::{
     app::{App, AppResult},
@@ -24,7 +25,8 @@ async fn main() -> AppResult<()> {
     // Initialize the terminal user interface.
     let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
-    let events = EventHandler::new(250);
+    let stream = TcpStream::connect("127.0.0.1:2137").await?;
+    let events = EventHandler::new(250, stream);
     let mut tui = Tui::new(terminal, events);
     tui.init()?;
 
@@ -38,6 +40,7 @@ async fn main() -> AppResult<()> {
             Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
             Event::Mouse(_) => {}
             Event::Resize(_, _) => {}
+            Event::Net(message) => handle_network_communication(message, &mut app),
         }
     }
 
