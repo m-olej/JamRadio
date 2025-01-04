@@ -1,4 +1,5 @@
 #include "json.hpp"
+#include "utils.hpp"
 #include <arpa/inet.h>
 #include <exception>
 #include <fcntl.h>
@@ -32,6 +33,7 @@ class JamRadio {
   int server_fd;
   int epoll_fd;
   ClientManager clientManager;
+  Utils utils;
   bool running;
 
 public:
@@ -137,9 +139,13 @@ public:
 
   void sendUpdate() {
     Json updateJson;
+    // Active listener count
     int activeListeners = clientManager.getActiveListeners();
     std::cout << updateJson.toString() << std::endl;
     updateJson["active_listeners"] = Json(activeListeners);
+    // Server song library
+    updateJson["song_library"] = utils.getSongLibrary();
+
     std::string update = updateJson.toString();
 
     std::cout << update << std::endl;
