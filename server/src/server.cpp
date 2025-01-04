@@ -134,14 +134,13 @@ public:
       std::cout << "Client disconnected" << std::endl;
       sendUpdate();
     }
-    write(STDOUT_FILENO, &buf, ret + 1);
+    write(STDOUT_FILENO, &buf, ret);
   }
 
   void sendUpdate() {
     Json updateJson;
     // Active listener count
     int activeListeners = clientManager.getActiveListeners();
-    std::cout << updateJson.toString() << std::endl;
     updateJson["active_listeners"] = Json(activeListeners);
     // Server song library
     updateJson["song_library"] = utils.getSongLibrary();

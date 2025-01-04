@@ -58,7 +58,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     );
 
     // ToDo: Get songs from server via async Tokio receiver
-    let server_items = FileExplorer::get_dir_contents("./songs");
+    let server_items = app.state.song_library.clone();
 
     let server_list = List::new(server_items);
 

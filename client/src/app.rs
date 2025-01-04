@@ -9,12 +9,15 @@ pub type AppResult<T> = std::result::Result<T, Box<dyn error::Error>>;
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ServerState {
     pub active_listeners: u8,
+    pub song_library: Vec<String>,
 }
+
 
 impl Default for ServerState {
     fn default() -> Self {
         Self {
             active_listeners: 0,
+            song_library: vec![],
         }
     }
 }
