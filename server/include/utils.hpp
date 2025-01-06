@@ -15,6 +15,8 @@ public:
   Utils();
 
   Json::Array getSongLibrary();
+
+  void addSongToLibrary(std::string name, char *buf);
 };
 
 #endif // UTILS_HPP

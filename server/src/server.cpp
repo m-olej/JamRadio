@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <iostream>
 #include <netinet/in.h>
+#include <stdexcept>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -24,6 +25,16 @@ public:
   void removeClient(int fd) { clients.erase(fd); }
 
   int getActiveListeners() const { return clients.size(); };
+  
+  const sockaddr_in &getClient(int fd) { 
+    auto it = clients.find(fd); 
+    
+    if (it == clients.end()) {
+      throw std::out_of_range("Client not found");
+    }
+    return it->second;
+  }
+  
 
   const std::map<int, sockaddr_in> &getClients() const { return clients; }
 };
@@ -126,6 +137,9 @@ public:
     // Do pretty much everything
     // based on clients[fd]
 
+    sockaddr_in client_info = clientManager.getClient(fd);
+    char client_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_info.sin_addr, client_ip, INET_ADDRSTRLEN);
     char buf[50];
     int ret = read(fd, &buf, sizeof(buf));
     if (ret == 0) {
@@ -134,7 +148,8 @@ public:
       std::cout << "Client disconnected" << std::endl;
       sendUpdate();
     }
-    write(STDOUT_FILENO, &buf, ret);
+    write(STDOUT_FILENO, client_ip, INET_ADDRSTRLEN);
+    write(STDOUT_FILENO, &buf, ret );
   }
 
   void sendUpdate() {
