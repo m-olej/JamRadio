@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::fs;
 
 pub fn get_dir_contents(src_dir: &str) -> Vec<String> {
     let path = fs::read_dir(src_dir).unwrap();

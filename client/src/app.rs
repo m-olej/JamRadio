@@ -1,6 +1,9 @@
 use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
-use std::{char, error};
+use std::{error, sync::{Arc, Mutex}};
+use tokio::net::TcpStream;
+use crate::lib::{FileExplorer::get_dir_contents, NetUtils::{self, sendSong}};
+use crate::lib::FileExplorer;
 
 /// Application result type.
 pub type AppResult<T> = std::result::Result<T, Box<dyn error::Error>>;
@@ -24,10 +27,12 @@ impl Default for ServerState {
 
 /// Application.
 #[derive(Debug)]
-pub struct App {
+pub struct App<'a> {
     /// Is the application running?
     pub running: bool,
-    /// counter
+    /// TCP connection
+    pub connection: Option<Arc<Mutex<TcpStream>>>,
+    /// counte r
     pub counter: u8,
     /// Clients File Explorer State
     pub client_fs_state: ListState,
@@ -36,28 +41,54 @@ pub struct App {
     /// Which file explorer is selected
     /// 0 -> server | 1 -> client
     pub client_fs_selected: bool,
-
+    /// State received from server
     pub state: ServerState,
+
+    /// CONSTANTS
+    pub song_dir: &'a str
 }
 
-impl Default for App {
+impl<'a> Default for App<'a> {
     fn default() -> Self {
         Self {
             running: true,
+            connection: None,
             counter: 0,
-            client_fs_state: ListState::default(),
+            client_fs_state: ListState::default().with_selected(Some(0)),
             server_fs_state: ListState::default(),
             client_fs_selected: true,
             state: ServerState::default(),
+            song_dir: "./songs/",
         }
     }
 }
 
-impl App {
+impl<'a> App<'a> {
     /// Constructs a new instance of [`App`].
     pub fn new() -> Self {
         Self::default()
     }
+    
+    pub fn add_connection(&mut self, connection: TcpStream) {
+        self.connection = Some(Arc::new(Mutex::new(connection)));
+    }
+
+    pub fn get_connection(&mut self) -> &mut Arc<Mutex<TcpStream>> {
+        self.connection.as_mut().unwrap()
+    }
+
+    pub fn get_client_song_path(&mut self) -> String {
+        let selected_file = self.client_fs_state.selected().unwrap();
+        let items = get_dir_contents(self.song_dir);
+
+        let mut file_path = items.get(selected_file).unwrap().to_string(); 
+        
+        file_path.insert_str(0, self.song_dir);
+
+        file_path
+    }
+
+
 
     /// Handles the tick event of the terminal.
     pub fn tick(&self) {}
@@ -96,5 +127,13 @@ impl App {
 
     pub fn update_state(&mut self, state: ServerState) {
         self.state = state;
+    }
+
+    pub fn handle_fs_actions(&mut self){
+        if self.client_fs_selected {
+            println!("Send file to server");
+        } else {
+            println!("Add song to server playback queue");
+        }
     }
 }

@@ -1,6 +1,7 @@
 use std::time::Duration;
-
+use std::sync::{Arc, Mutex};
 use crossterm::event::{Event as CrosstermEvent, KeyEvent, MouseEvent};
+use crossterm::event::KeyCode;
 use futures::{FutureExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -8,7 +9,7 @@ use tokio::sync::mpsc;
 use crate::app::AppResult;
 
 /// Terminal events.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum Event {
     /// Terminal tick.
     Tick,
@@ -18,8 +19,10 @@ pub enum Event {
     Mouse(MouseEvent),
     /// Terminal resize.
     Resize(u16, u16),
-    /// Network communication
+    /// Server update network communication
     Net([u8; 1024]),
+    /// File Transfer 
+    FileTransfer,
 }
 
 /// Terminal event handler.
@@ -36,7 +39,7 @@ pub struct EventHandler {
 
 impl EventHandler {
     /// Constructs a new instance of [`EventHandler`].
-    pub fn new(tick_rate: u64, stream: TcpStream) -> Self {
+    pub fn new(tick_rate: u64, stream: Arc<Mutex<TcpStream>>) -> Self {
         let tick_rate = Duration::from_millis(tick_rate);
         let (sender, receiver) = mpsc::unbounded_channel();
         let _sender = sender.clone();
@@ -54,13 +57,13 @@ impl EventHandler {
                   _ = tick_delay => {
                     _sender.send(Event::Tick).unwrap();
                   }
-                result = async { stream.try_read(&mut update_buf) } => {
+                result = async { stream.lock().unwrap().try_read(&mut update_buf) } => {
                     match result {
                             Ok(0) => {
                                 // connection closed
                                 continue;
                             }
-                            Ok(n) => {
+                            Ok(_n) => {
                                 let data = update_buf;
                                 let _ = _sender.send(Event::Net(data));
                                 // If n == 1024 check for rest of message if neccessary
@@ -75,10 +78,15 @@ impl EventHandler {
                         }
                 }
                 Some(Ok(evt)) = crossterm_event => {
+                        
                     match evt {
                       CrosstermEvent::Key(key) => {
                         if key.kind == crossterm::event::KeyEventKind::Press {
-                          _sender.send(Event::Key(key)).unwrap();
+                            if key.code == KeyCode::Enter {
+                                _sender.send(Event::FileTransfer).unwrap();
+                            } else {
+                                _sender.send(Event::Key(key)).unwrap();
+                            } 
                         }
                       },
                       CrosstermEvent::Mouse(mouse) => {

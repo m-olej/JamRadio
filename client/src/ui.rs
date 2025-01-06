@@ -79,7 +79,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         &mut app.server_fs_state,
     );
 
-    let client_items = FileExplorer::get_dir_contents("./songs");
+    let client_items = FileExplorer::get_dir_contents(app.song_dir);
 
     let client_list = List::new(client_items);
 

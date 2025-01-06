@@ -1,6 +1,6 @@
 use std::io;
 
-use handler::handle_network_communication;
+use handler::{handle_network_communication, handle_file_actions};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::net::TcpStream;
 
@@ -26,8 +26,12 @@ async fn main() -> AppResult<()> {
     // Initialize the terminal user interface.
     let backend = CrosstermBackend::new(io::stdout());
     let terminal = Terminal::new(backend)?;
-    let stream = TcpStream::connect("127.0.0.1:2137").await?;
-    let events = EventHandler::new(250, stream);
+    let stream: TcpStream = TcpStream::connect("127.0.0.1:2137").await?;
+    app.add_connection(stream);
+    
+    let connection = app.connection.clone().unwrap();
+
+    let events = EventHandler::new(250, connection.clone());
     let mut tui = Tui::new(terminal, events);
     tui.init()?;
 
@@ -41,7 +45,8 @@ async fn main() -> AppResult<()> {
             Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
             Event::Mouse(_) => {}
             Event::Resize(_, _) => {}
-            Event::Net(message) => handle_network_communication(&message, &mut app),
+            Event::Net(message) => handle_network_communication(&message, &mut app)?,
+            Event::FileTransfer => handle_file_actions(&mut app).await?,
         }
     }
 
