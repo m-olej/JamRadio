@@ -1,14 +1,20 @@
 #include "json.hpp"
 #include "utils.hpp"
 #include <arpa/inet.h>
+#include <condition_variable>
+#include <cstring>
 #include <exception>
 #include <fcntl.h>
+#include <functional>
 #include <iostream>
+#include <mutex>
 #include <netinet/in.h>
+#include <queue>
 #include <stdexcept>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 
 int make_non_blocking(int fd) {
@@ -16,25 +22,78 @@ int make_non_blocking(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+// Thread pool class
+class ThreadPool {
+  std::vector<std::thread> workers;
+  std::queue<std::function<void()>> tasks;
+  std::mutex queue_mutex;
+  std::condition_variable condition;
+  bool stop;
+
+public:
+  ThreadPool(size_t threads) : stop(false) {
+    for (size_t i = 0; i < threads; ++i) {
+      workers.emplace_back([this] {
+        while (true) {
+          std::function<void()> task;
+
+          {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            condition.wait(lock, [this] { return stop || !tasks.empty(); });
+            if (stop && tasks.empty())
+              return;
+            task = std::move(tasks.front());
+            tasks.pop();
+          }
+
+          task();
+        }
+      });
+    }
+  }
+
+  template <class F> void enqueue(F &&f) {
+    {
+      std::unique_lock<std::mutex> lock(queue_mutex);
+      if (stop)
+        throw std::runtime_error("Enqueue on stopped ThreadPool");
+      tasks.emplace(std::forward<F>(f));
+    }
+    condition.notify_one();
+  }
+
+  ~ThreadPool() {
+    {
+      std::unique_lock<std::mutex> lock(queue_mutex);
+      stop = true;
+    }
+    condition.notify_all();
+    for (std::thread &worker : workers)
+      worker.join();
+  }
+};
+
 class ClientManager {
   std::map<int, sockaddr_in> clients;
 
 public:
   void addClient(int fd, sockaddr_in client_info) { clients[fd] = client_info; }
 
-  void removeClient(int fd) { clients.erase(fd); }
+  void removeClient(int fd) {
+    clients.erase(fd);
+    close(fd);
+  }
 
   int getActiveListeners() const { return clients.size(); };
-  
-  const sockaddr_in &getClient(int fd) { 
-    auto it = clients.find(fd); 
-    
+
+  const sockaddr_in &getClient(int fd) {
+    auto it = clients.find(fd);
+
     if (it == clients.end()) {
       throw std::out_of_range("Client not found");
     }
     return it->second;
   }
-  
 
   const std::map<int, sockaddr_in> &getClients() const { return clients; }
 };
@@ -43,12 +102,13 @@ class JamRadio {
 
   int server_fd;
   int epoll_fd;
+  ThreadPool threadPool;
   ClientManager clientManager;
   Utils utils;
   bool running;
 
 public:
-  JamRadio(int port) {
+  JamRadio(int port, size_t thread_count) : threadPool(thread_count) {
     setup(port);
     // Initialize dataStructures
   }
@@ -80,7 +140,7 @@ public:
     // Assign epoll descriptor
     epoll_fd = epoll_create1(0);
     epoll_event event = {};
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLET; // Edge triggered mode
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
 
@@ -114,7 +174,7 @@ public:
 
     // Add new client to epoll
     epoll_event event = {}; // Initialize to empty object
-    event.events = EPOLLIN;
+    event.events = EPOLLIN | EPOLLET;
     event.data.fd = client_fd;
 
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event);
@@ -140,16 +200,52 @@ public:
     sockaddr_in client_info = clientManager.getClient(fd);
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &client_info.sin_addr, client_ip, INET_ADDRSTRLEN);
-    char buf[50];
-    int ret = read(fd, &buf, sizeof(buf));
-    if (ret == 0) {
-      clientManager.removeClient(fd);
-      epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
-      std::cout << "Client disconnected" << std::endl;
-      sendUpdate();
+    // Debug
+    std::cout << "From client: " << client_ip << std::endl;
+
+    char signature;
+
+    int ret = read(fd, &signature, sizeof(signature));
+    if (ret <= 0) {
+      if (ret == 0) {
+        clientManager.removeClient(fd);
+        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+        std::cout << "Client disconnected" << std::endl;
+        sendUpdate();
+      }
+      return;
     }
-    write(STDOUT_FILENO, client_ip, INET_ADDRSTRLEN);
-    write(STDOUT_FILENO, &buf, ret );
+
+    // Handle multiple types of communication (buf[0] - signature)
+    switch (signature) {
+    case 'f':
+      uint32_t filename_size, file_size;
+
+      read(fd, &filename_size, sizeof(filename_size));
+      filename_size = ntohl(filename_size);
+
+      std::cout << "filename_size: " << filename_size << std::endl;
+      std::vector<char> filename(filename_size);
+
+      read(fd, filename.data(), filename_size);
+
+      std::cout << "filename: " << filename.data() << std::endl;
+      read(fd, &file_size, sizeof(file_size));
+      file_size = ntohl(file_size);
+
+      std::cout << "file_size: " << file_size << std::endl;
+      std::vector<char> file(file_size);
+
+      read(fd, file.data(), file_size);
+      std::cout << "file: " << file.data() << std::endl;
+
+      utils.addSongToLibrary(filename.data(), file.data());
+      break;
+    }
+
+    // Each client communication changes the server state
+    // Send updated server state to each client
+    sendUpdate();
   }
 
   void sendUpdate() {
@@ -174,12 +270,15 @@ public:
 
     epoll_event events[100];
     while (running) {
+      std::cout << "waiting" << std::endl;
       int n = epoll_wait(epoll_fd, events, 100, -1);
       for (int i = 0; i < n; i++) {
         if (events[i].data.fd == server_fd) {
           acceptConnection();
         } else {
-          handleClient(events[i].data.fd);
+          int fd = events[i].data.fd;
+          threadPool.enqueue([this, fd]() { handleClient(fd); });
+          // handleClient(fd);
         }
       }
     }
@@ -189,7 +288,7 @@ public:
 int main(int argc, char *argv[]) {
 
   try {
-    JamRadio server = JamRadio(2137);
+    JamRadio server = JamRadio(2137, 1);
     server.start();
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;

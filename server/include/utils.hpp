@@ -16,7 +16,8 @@ public:
 
   Json::Array getSongLibrary();
 
-  void addSongToLibrary(std::string name, char *buf);
+  void addSongToLibrary(const char *file_name,
+                        const char *file_content); // Interpret buffer
 };
 
 #endif // UTILS_HPP

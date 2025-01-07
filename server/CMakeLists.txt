@@ -13,4 +13,8 @@ include_directories(include)
 
 file(GLOB SOURCES "src/*.cpp" "include/*.cpp")
 
+find_package(Threads REQUIRED)
+
 add_executable(JamRadio ${SOURCES})
+
+target_link_libraries(JamRadio PRIVATE Threads::Threads)

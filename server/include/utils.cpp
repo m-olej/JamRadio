@@ -1,6 +1,12 @@
 #include "utils.hpp"
 #include "json.hpp"
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <netinet/in.h>
+#include <string>
+#include <unistd.h>
+#include <vector>
 
 Utils::Utils() {};
 
@@ -15,4 +21,12 @@ Json::Array Utils::getSongLibrary() {
   }
 
   return Json::Array(songs);
+}
+
+void Utils::addSongToLibrary(const char *file_name, const char *file_content) {
+  std::ofstream newSong(file_name);
+
+  newSong << file_content;
+
+  return;
 }
