@@ -10,11 +10,6 @@ use crate::lib::FileExplorer;
 
 // Custom widgets
 
-// pub struct FileExplorer {} // File explorer wiget
-pub struct SongProgress {} // Status bar of song lenght [Gauge]
-pub struct ServerSongLibrary {} // Custom List from Server Song Library info
-pub struct SongCard {} // Song Card
-
 /// Renders the user interface widgets.
 pub fn render(app: &mut App, frame: &mut Frame) {
     // This is where you add new widgets.

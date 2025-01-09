@@ -34,7 +34,7 @@ pub async fn sendSong<'a>(file_path: String, app: &mut App<'a>) -> AppResult<()>
     // Compose message
     message.extend(&filename_size.to_be_bytes());
     message.extend(path_buffer);
-    message.extend(file_size.to_be_bytes());
+    message.extend(&file_size.to_be_bytes());
     message.extend(buffer);
 
     stream.lock().unwrap().write_all(&message).await?;

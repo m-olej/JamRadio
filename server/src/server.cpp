@@ -1,11 +1,16 @@
 #include "json.hpp"
 #include "utils.hpp"
 #include <arpa/inet.h>
+#include <cerrno>
+#include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <errno.h>
 #include <exception>
 #include <fcntl.h>
+#include <fstream>
 #include <functional>
+#include <ios>
 #include <iostream>
 #include <mutex>
 #include <netinet/in.h>
@@ -14,8 +19,12 @@
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <thread>
 #include <unistd.h>
+
+// Consts
+#define CHUNK_SIZE 4096
 
 int make_non_blocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -219,8 +228,9 @@ public:
     // Handle multiple types of communication (buf[0] - signature)
     switch (signature) {
     case 'f':
+      std::cout << "Receiving file" << std::endl;
       uint32_t filename_size, file_size;
-
+      const int chunk_size = 4096;
       read(fd, &filename_size, sizeof(filename_size));
       filename_size = ntohl(filename_size);
 
@@ -234,12 +244,31 @@ public:
       file_size = ntohl(file_size);
 
       std::cout << "file_size: " << file_size << std::endl;
-      std::vector<char> file(file_size);
 
-      read(fd, file.data(), file_size);
-      std::cout << "file: " << file.data() << std::endl;
+      // std::vector<char> file(file_size);
+      // read(fd, file.data(), file_size);
 
-      utils.addSongToLibrary(filename.data(), file.data());
+      std::ofstream newSong(filename.data(), std::ios::binary);
+      if (!newSong.is_open()) {
+        throw std::runtime_error("Song file writing error");
+      };
+
+      uint32_t bytes_read;
+      uint32_t total = 0;
+      char audio_buffer[CHUNK_SIZE]{};
+      while ((bytes_read = read(fd, audio_buffer, CHUNK_SIZE))) {
+        newSong.write(audio_buffer, bytes_read);
+        std::cout << "Written " << bytes_read << " bytes" << std::endl;
+        total += bytes_read;
+        std::cout << "Total bytes read: " << total << std::endl;
+        if (total >= file_size) {
+          std::cout << filename.data() << " added to the song library"
+                    << std::endl;
+          break;
+        }
+      }
+
+      // utils.addSongToLibrary(filename.data(), file.data());
       break;
     }
 
@@ -277,8 +306,8 @@ public:
           acceptConnection();
         } else {
           int fd = events[i].data.fd;
-          threadPool.enqueue([this, fd]() { handleClient(fd); });
-          // handleClient(fd);
+          // threadPool.enqueue([this, fd]() { handleClient(fd); });
+          handleClient(fd);
         }
       }
     }
