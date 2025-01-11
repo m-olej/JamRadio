@@ -30,10 +30,10 @@ impl Default for ServerState {
 pub struct App<'a> {
     /// Is the application running?
     pub running: bool,
-    /// TCP connection
-    pub connection: Option<Arc<Mutex<TcpStream>>>,
-    /// counte r
-    pub counter: u8,
+    /// TCP communication connection 
+    pub c_connection: Option<Arc<Mutex<TcpStream>>>,
+    /// TCP audio connection
+    pub a_connection: Option<Arc<Mutex<TcpStream>>>,
     /// Clients File Explorer State
     pub client_fs_state: ListState,
     /// Servers File Explorer State
@@ -52,8 +52,8 @@ impl<'a> Default for App<'a> {
     fn default() -> Self {
         Self {
             running: true,
-            connection: None,
-            counter: 0,
+            c_connection: None,
+            a_connection: None,
             client_fs_state: ListState::default().with_selected(Some(0)),
             server_fs_state: ListState::default(),
             client_fs_selected: true,
@@ -69,12 +69,20 @@ impl<'a> App<'a> {
         Self::default()
     }
     
-    pub fn add_connection(&mut self, connection: TcpStream) {
-        self.connection = Some(Arc::new(Mutex::new(connection)));
+    pub fn add_comm_connection(&mut self, connection: TcpStream) {
+        self.c_connection = Some(Arc::new(Mutex::new(connection)));
     }
 
-    pub fn get_connection(&mut self) -> &mut Arc<Mutex<TcpStream>> {
-        self.connection.as_mut().unwrap()
+    pub fn add_audio_connection(&mut self, connection: TcpStream){
+        self.a_connection = Some(Arc::new(Mutex::new(connection)));
+    }
+
+    pub fn get_comm_connection(&mut self) -> &mut Arc<Mutex<TcpStream>> {
+        self.c_connection.as_mut().unwrap()
+    }
+
+    pub fn get_audio_connection(&mut self) -> &mut Arc<Mutex<TcpStream>> {
+        self.a_connection.as_mut().unwrap()
     }
 
     pub fn get_client_song_path(&mut self) -> String {

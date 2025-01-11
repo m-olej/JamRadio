@@ -1,6 +1,7 @@
 #include "json.hpp"
 #include "utils.hpp"
 #include <arpa/inet.h>
+#include <asm-generic/socket.h>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
@@ -83,10 +84,20 @@ public:
 };
 
 class ClientManager {
-  std::map<int, sockaddr_in> clients;
+  struct Client {
+    sockaddr_in client_address;
+    int audio_fd;
+    
+    // Default constructor for std::map default initilization
+    Client() : client_address{}, audio_fd{-1} {};
+
+    Client(sockaddr_in client_address, int audio_fd) : client_address(client_address), audio_fd(audio_fd) {};
+  };
+  
+  std::map<int, Client> clients;
 
 public:
-  void addClient(int fd, sockaddr_in client_info) { clients[fd] = client_info; }
+  void addClient(int fd, sockaddr_in client_info, int audio_fd) { clients[fd] = Client(client_info,  audio_fd); }
 
   void removeClient(int fd) {
     clients.erase(fd);
@@ -95,7 +106,7 @@ public:
 
   int getActiveListeners() const { return clients.size(); };
 
-  const sockaddr_in &getClient(int fd) {
+  const Client &getClient(int fd) {
     auto it = clients.find(fd);
 
     if (it == clients.end()) {
@@ -104,12 +115,13 @@ public:
     return it->second;
   }
 
-  const std::map<int, sockaddr_in> &getClients() const { return clients; }
+  const std::map<int, Client> &getClients() const { return clients; }
 };
 
 class JamRadio {
 
   int server_fd;
+  int audio_fd;
   int epoll_fd;
   ThreadPool threadPool;
   ClientManager clientManager;
@@ -117,9 +129,8 @@ class JamRadio {
   bool running;
 
 public:
-  JamRadio(int port, size_t thread_count) : threadPool(thread_count) {
-    setup(port);
-    // Initialize dataStructures
+  JamRadio(int c_port, int a_port, size_t thread_count) : threadPool(thread_count) {
+    setup(c_port, a_port);
   }
 
   ~JamRadio() {
@@ -133,9 +144,9 @@ public:
     close(epoll_fd);
   }
 
-  void setup(int port) {
+  void setup(int c_port, int a_port) {
     // Define the server address
-    sockaddr_in serverAddress, clientAddress;
+    sockaddr_in serverAddress, audioAddress, clientAddress;
     socklen_t client_len = sizeof(clientAddress);
 
     // Client connection socket
@@ -143,8 +154,16 @@ public:
     if (server_fd < 0) {
       throw std::runtime_error("Server socket creation failed");
     }
+    audio_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (audio_fd < 0) {
+      throw std::runtime_error("Audio socket creation failed");
+    }
     const int one = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    setsockopt(audio_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+    setsockopt(audio_fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+
 
     // Assign epoll descriptor
     epoll_fd = epoll_create1(0);
@@ -155,35 +174,56 @@ public:
 
     // Bind the socket
     serverAddress.sin_addr.s_addr = INADDR_ANY;
-    serverAddress.sin_port = htons(2137);
+    serverAddress.sin_port = htons(c_port);
     serverAddress.sin_family = AF_INET;
     if (bind(server_fd, (sockaddr *)&serverAddress, sizeof(serverAddress)) <
         0) {
-      throw std::runtime_error("Failure during socket bind");
+      throw std::runtime_error("Failure during communication socket bind");
       close(server_fd);
+    }
+    audioAddress.sin_addr.s_addr = INADDR_ANY;
+    audioAddress.sin_port = htons(a_port);
+    audioAddress.sin_family = AF_INET;
+    if (bind(audio_fd, (sockaddr *)&audioAddress, sizeof(audioAddress)) < 0) {
+      perror("Audio bind error: ");
+      throw std::runtime_error("Failure during audio socket bind");
+      close(audio_fd);
     }
 
     // Listen for client connections
     if (listen(server_fd, 5)) {
       throw std::runtime_error("Listening for connections failed");
+      shutdown(server_fd, SHUT_RDWR);
       close(server_fd);
     }
+    if (listen(audio_fd, 5)) {
+      throw std::runtime_error("Listening for audio connection failed");
+      shutdown(audio_fd, SHUT_RDWR);
+      close(audio_fd);
+    }
 
-    std::cout << "Radio is up! on port " << serverAddress.sin_port << std::endl;
+    std::cout << "Radio is up!" << std::endl; 
+    std::cout << "Communication port: " << ntohs(serverAddress.sin_port) << std::endl;
+    std::cout << "Audio port: " << ntohs(audioAddress.sin_port) << std::endl;
   }
 
   void acceptConnection() {
     sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     int client_fd = accept(server_fd, (sockaddr *)&client_addr, &client_len);
-
-    if (client_fd == -1)
-      return;
+    if (client_fd == -1 ) {
+      throw std::runtime_error("Client communication connection failure");  
+    }
     make_non_blocking(client_fd);
+    int audio_sd = accept(audio_fd, nullptr, nullptr);
+    if (audio_sd == -1 ) {
+      throw std::runtime_error("Client audio communication failure");
+    }
+    make_non_blocking(audio_sd);
 
     // Add new client to epoll
     epoll_event event = {}; // Initialize to empty object
-    event.events = EPOLLIN | EPOLLET;
+    event.events = EPOLLIN | EPOLLET | EPOLLONESHOT; // Trigger once when new data comes from client socket
     event.data.fd = client_fd;
 
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event);
@@ -197,7 +237,7 @@ public:
               << std::endl;
 
     // Add Client to manager
-    clientManager.addClient(client_fd, client_addr);
+    clientManager.addClient(client_fd, client_addr, audio_sd);
     // Send new client update
     sendUpdate();
   }
@@ -206,7 +246,7 @@ public:
     // Do pretty much everything
     // based on clients[fd]
 
-    sockaddr_in client_info = clientManager.getClient(fd);
+    sockaddr_in client_info = clientManager.getClient(fd).client_address;
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &client_info.sin_addr, client_ip, INET_ADDRSTRLEN);
     // Debug
@@ -245,9 +285,6 @@ public:
 
       std::cout << "file_size: " << file_size << std::endl;
 
-      // std::vector<char> file(file_size);
-      // read(fd, file.data(), file_size);
-
       std::ofstream newSong(filename.data(), std::ios::binary);
       if (!newSong.is_open()) {
         throw std::runtime_error("Song file writing error");
@@ -268,9 +305,15 @@ public:
         }
       }
 
-      // utils.addSongToLibrary(filename.data(), file.data());
       break;
     }
+
+    // Reactivate clients socket events
+    epoll_event event = {}; // Initialize to empty object
+    event.events = EPOLLIN | EPOLLET | EPOLLONESHOT; // Trigger once when new data comes from client socket
+    event.data.fd = fd;
+
+    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
 
     // Each client communication changes the server state
     // Send updated server state to each client
@@ -306,8 +349,7 @@ public:
           acceptConnection();
         } else {
           int fd = events[i].data.fd;
-          // threadPool.enqueue([this, fd]() { handleClient(fd); });
-          handleClient(fd);
+          threadPool.enqueue([this, fd]() { handleClient(fd); });
         }
       }
     }
@@ -317,7 +359,7 @@ public:
 int main(int argc, char *argv[]) {
 
   try {
-    JamRadio server = JamRadio(2137, 1);
+    JamRadio server = JamRadio(atoi(argv[1]), atoi(argv[2]), 4);
     server.start();
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;

@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 
 #[allow(non_snake_case)]
 pub async fn sendSong<'a>(file_path: String, app: &mut App<'a>) -> AppResult<()> {
-    let stream: Arc<Mutex<TcpStream>> = app.connection.clone().unwrap();
+    let stream: Arc<Mutex<TcpStream>> = app.c_connection.clone().unwrap();
 
     // Initialize message with signature
     let mut message: Vec<u8> = "f".into();
