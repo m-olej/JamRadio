@@ -41,3 +41,24 @@ pub async fn sendSong<'a>(file_path: String, app: &mut App<'a>) -> AppResult<()>
 
     Ok(())
 }
+
+pub async fn toQueue<'a>(song_name: String, app: &mut App<'a>) -> AppResult<()> {
+    let stream: Arc<Mutex<TcpStream>> = app.c_connection.clone().unwrap();
+
+    let mut message: Vec<u8> = "q".into();
+
+    let mut songname = song_name.clone();
+    songname.insert_str(0, "./songs/");
+
+    // songname_size
+    let songname_size = songname.len() as u32;
+
+    let buf: Vec<u8> = songname.into();
+
+    message.extend(&songname_size.to_be_bytes());
+    message.extend(buf);
+
+    stream.lock().unwrap().write_all(&message).await?;
+
+    Ok(())
+}

@@ -1,4 +1,5 @@
 #include "json.hpp"
+#include "queue.hpp"
 #include "utils.hpp"
 #include <arpa/inet.h>
 #include <asm-generic/socket.h>
@@ -16,6 +17,7 @@
 #include <mutex>
 #include <netinet/in.h>
 #include <queue>
+#include <shared_mutex>
 #include <stdexcept>
 #include <string>
 #include <sys/epoll.h>
@@ -87,26 +89,37 @@ class ClientManager {
   struct Client {
     sockaddr_in client_address;
     int audio_fd;
-    
+
     // Default constructor for std::map default initilization
     Client() : client_address{}, audio_fd{-1} {};
 
-    Client(sockaddr_in client_address, int audio_fd) : client_address(client_address), audio_fd(audio_fd) {};
+    Client(sockaddr_in client_address, int audio_fd)
+        : client_address(client_address), audio_fd(audio_fd) {};
   };
-  
+
+  mutable std::shared_mutex clients_mutex;
+
   std::map<int, Client> clients;
 
 public:
-  void addClient(int fd, sockaddr_in client_info, int audio_fd) { clients[fd] = Client(client_info,  audio_fd); }
+  void addClient(int fd, sockaddr_in client_info, int audio_fd) {
+    std::unique_lock<std::shared_mutex> lock(clients_mutex);
+    clients[fd] = Client(client_info, audio_fd);
+  }
 
   void removeClient(int fd) {
+    std::unique_lock<std::shared_mutex> lock(clients_mutex);
     clients.erase(fd);
     close(fd);
   }
 
-  int getActiveListeners() const { return clients.size(); };
+  int getActiveListeners() const {
+    std::shared_lock<std::shared_mutex> lock(clients_mutex);
+    return clients.size();
+  };
 
   const Client &getClient(int fd) {
+    std::shared_lock<std::shared_mutex> lock(clients_mutex);
     auto it = clients.find(fd);
 
     if (it == clients.end()) {
@@ -115,7 +128,10 @@ public:
     return it->second;
   }
 
-  const std::map<int, Client> &getClients() const { return clients; }
+  const std::map<int, Client> &getClients() const {
+    std::shared_lock<std::shared_mutex> lock(clients_mutex);
+    return clients;
+  }
 };
 
 class JamRadio {
@@ -125,11 +141,13 @@ class JamRadio {
   int epoll_fd;
   ThreadPool threadPool;
   ClientManager clientManager;
+  Queue queue;
   Utils utils;
   bool running;
 
 public:
-  JamRadio(int c_port, int a_port, size_t thread_count) : threadPool(thread_count) {
+  JamRadio(int c_port, int a_port, size_t thread_count)
+      : threadPool(thread_count) {
     setup(c_port, a_port);
   }
 
@@ -163,7 +181,6 @@ public:
     setsockopt(audio_fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
     setsockopt(audio_fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-
 
     // Assign epoll descriptor
     epoll_fd = epoll_create1(0);
@@ -202,8 +219,9 @@ public:
       close(audio_fd);
     }
 
-    std::cout << "Radio is up!" << std::endl; 
-    std::cout << "Communication port: " << ntohs(serverAddress.sin_port) << std::endl;
+    std::cout << "Radio is up!" << std::endl;
+    std::cout << "Communication port: " << ntohs(serverAddress.sin_port)
+              << std::endl;
     std::cout << "Audio port: " << ntohs(audioAddress.sin_port) << std::endl;
   }
 
@@ -211,19 +229,21 @@ public:
     sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     int client_fd = accept(server_fd, (sockaddr *)&client_addr, &client_len);
-    if (client_fd == -1 ) {
-      throw std::runtime_error("Client communication connection failure");  
+    if (client_fd == -1) {
+      throw std::runtime_error("Client communication connection failure");
     }
     make_non_blocking(client_fd);
     int audio_sd = accept(audio_fd, nullptr, nullptr);
-    if (audio_sd == -1 ) {
+    if (audio_sd == -1) {
       throw std::runtime_error("Client audio communication failure");
     }
     make_non_blocking(audio_sd);
 
     // Add new client to epoll
     epoll_event event = {}; // Initialize to empty object
-    event.events = EPOLLIN | EPOLLET | EPOLLONESHOT; // Trigger once when new data comes from client socket
+    event.events =
+        EPOLLIN | EPOLLET |
+        EPOLLONESHOT; // Trigger once when new data comes from client socket
     event.data.fd = client_fd;
 
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event);
@@ -267,7 +287,7 @@ public:
 
     // Handle multiple types of communication (buf[0] - signature)
     switch (signature) {
-    case 'f':
+    case 'f': {
       std::cout << "Receiving file" << std::endl;
       uint32_t filename_size, file_size;
       const int chunk_size = 4096;
@@ -307,10 +327,29 @@ public:
 
       break;
     }
+    case 'q': {
+      std::cout << "Adding to queue" << std::endl;
+      uint32_t songname_size;
+      read(fd, &songname_size, sizeof(songname_size));
+      songname_size = ntohl(songname_size);
+
+      std::cout << "Song name size: " << songname_size << std::endl;
+
+      std::vector<char> songname(songname_size);
+      read(fd, songname.data(), songname_size);
+
+      std::cout << "Song name: " << songname.data() << std::endl;
+
+      queue.addToQueue(songname.data());
+      break;
+    }
+    }
 
     // Reactivate clients socket events
     epoll_event event = {}; // Initialize to empty object
-    event.events = EPOLLIN | EPOLLET | EPOLLONESHOT; // Trigger once when new data comes from client socket
+    event.events =
+        EPOLLIN | EPOLLET |
+        EPOLLONESHOT; // Trigger once when new data comes from client socket
     event.data.fd = fd;
 
     epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
@@ -327,6 +366,7 @@ public:
     updateJson["active_listeners"] = Json(activeListeners);
     // Server song library
     updateJson["song_library"] = utils.getSongLibrary();
+    updateJson["song_queue"] = queue.getJsonQueue();
 
     std::string update = updateJson.toString();
 
@@ -340,6 +380,8 @@ public:
   void start() {
     running = true;
 
+    std::thread audio_stream(&JamRadio::streamCast, this);
+    audio_stream.detach();
     epoll_event events[100];
     while (running) {
       std::cout << "waiting" << std::endl;
@@ -350,6 +392,21 @@ public:
         } else {
           int fd = events[i].data.fd;
           threadPool.enqueue([this, fd]() { handleClient(fd); });
+        }
+      }
+    }
+  }
+
+  void streamCast() {
+    while (running) {
+      if (!queue.isEmpty()) {
+        std::vector<char> chunk = queue.getChunk();
+        std::cout << chunk.data();
+        for (const auto &client : clientManager.getClients()) {
+          if (send(client.second.audio_fd, chunk.data(), chunk.size(), 0) < 0) {
+            perror("Audio stream error: ");
+          };
+          break;
         }
       }
     }

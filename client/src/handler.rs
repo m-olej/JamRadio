@@ -1,4 +1,7 @@
-use crate::{app::{App, AppResult, ServerState}, lib::NetUtils::sendSong};
+use crate::{
+    app::{App, AppResult, ServerState},
+    lib::NetUtils::{sendSong, toQueue},
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Handles the key events and updates the state of [`App`].
@@ -51,13 +54,12 @@ pub fn handle_network_communication(message: &[u8; 1024], app: &mut App) -> AppR
 }
 
 pub async fn handle_file_actions(app: &mut App<'_>) -> AppResult<()> {
-    
     if app.client_fs_selected {
         let file_path = app.get_client_song_path();
         sendSong(file_path, app).await?;
     } else {
-        // Send add song to queue request
-        println!("Not implemented yet")
+        let song_name = app.get_song();
+        toQueue(song_name, app).await?;
     }
 
     Ok(())

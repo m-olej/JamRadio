@@ -103,8 +103,9 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             .style(default_style),
         queue_layout[0],
     );
+    let song_queue = app.state.song_queue.clone();
     frame.render_widget(
-        Paragraph::new("To be added")
+        List::new(song_queue)
             .block(Block::bordered().border_type(BorderType::Rounded))
             .style(default_style),
         queue_layout[1],
