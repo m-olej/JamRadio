@@ -399,14 +399,13 @@ public:
 
   void streamCast() {
     while (running) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
       if (!queue.isEmpty()) {
         std::vector<char> chunk = queue.getChunk();
-        std::cout << chunk.data();
         for (const auto &client : clientManager.getClients()) {
           if (send(client.second.audio_fd, chunk.data(), chunk.size(), 0) < 0) {
             perror("Audio stream error: ");
           };
-          break;
         }
       }
     }

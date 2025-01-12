@@ -13,7 +13,7 @@ class Queue {
 private:
   mutable std::shared_mutex queue_mutex;
   const int sampling_rate = 48000;
-  const int chunk_size = 4096;
+  const int chunk_size = 4096 * 8;
   const int header_offset = 0; // standard wav header size
   struct Song {
     std::string path;
