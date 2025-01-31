@@ -7,8 +7,12 @@ use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
 use std::{
     error,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 /// Application result type.
@@ -36,7 +40,7 @@ impl Default for ServerState {
 #[derive(Debug)]
 pub struct App<'a> {
     /// Is the application running?
-    pub running: bool,
+    pub running: Arc<AtomicBool>,
     /// TCP communication connection
     pub c_connection: Option<Arc<Mutex<TcpStream>>>,
     /// TCP audio connection
@@ -58,7 +62,7 @@ pub struct App<'a> {
 impl<'a> Default for App<'a> {
     fn default() -> Self {
         Self {
-            running: true,
+            running: Arc::new(AtomicBool::new(true)),
             c_connection: None,
             a_connection: None,
             client_fs_state: ListState::default().with_selected(Some(0)),
@@ -114,7 +118,12 @@ impl<'a> App<'a> {
 
     /// Set running to false to quit the application.
     pub fn quit(&mut self) {
-        self.running = false;
+        self.running.store(false, Ordering::Relaxed);
+        println!("app detected quit");
+        if let Some(conn) = self.c_connection.take() {
+            let _ = conn.lock().unwrap().shutdown();
+            println!("C_connection shutdown");
+        }
     }
 
     pub fn handle_fs_state(&mut self, direction: &str) {

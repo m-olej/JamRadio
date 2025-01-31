@@ -44,7 +44,7 @@ std::vector<char> Queue::getChunk() {
   std::shared_lock<std::shared_mutex> lock(Queue::queue_mutex);
   int left = -1;
   int chunk = chunk_size;
-  int cursor = song_queue.front().cursor + header_offset;
+  int cursor = song_queue.front().cursor;
   std::vector<char> audioChunk(chunk_size);
   if (song_queue.front().file_size - cursor <= chunk_size) {
     left = song_queue.front().file_size - cursor;
@@ -53,8 +53,6 @@ std::vector<char> Queue::getChunk() {
     } else {
       std::ifstream s1(song_queue.front().path, std::ios::binary);
       if (!s1.is_open()) {
-        std::cout << "Inside: " << song_queue.front().cursor << " : "
-                  << song_queue.front().file_size << std::endl;
         throw std::runtime_error("Failed during song file open");
       }
       s1.seekg(cursor, std::ios::beg);
@@ -64,9 +62,9 @@ std::vector<char> Queue::getChunk() {
   }
   std::ifstream song(song_queue.front().path, std::ios::binary);
   if (!song.is_open()) {
-    std::cout << "Outside: " << song_queue.front().cursor << " : "
-              << song_queue.front().file_size << std::endl;
-    throw std::runtime_error("Failed during song file open");
+    if (!song_queue.empty()) {
+      throw std::runtime_error("Failed during song file open");
+    }
   }
   if (left > 0) {
     chunk -= left;

@@ -399,10 +399,13 @@ public:
 
   void streamCast() {
     while (running) {
+      // wait for last chunk playback to end
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
       if (!queue.isEmpty()) {
         std::vector<char> chunk = queue.getChunk();
         for (const auto &client : clientManager.getClients()) {
+          std::cout << "Sending audio chunk size: " << chunk.size()
+                    << std::endl;
           if (send(client.second.audio_fd, chunk.data(), chunk.size(), 0) < 0) {
             perror("Audio stream error: ");
           };

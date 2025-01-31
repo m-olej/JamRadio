@@ -1,22 +1,36 @@
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, Sink};
+use std::collections::VecDeque;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use std::u8;
+use tokio::sync::{mpsc, Mutex};
+use tokio::time::{sleep, Duration};
 
-pub fn playback_audio(rx: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>) {
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
-
-    while let chunk = rx.lock().unwrap().blocking_recv().unwrap() {
-        // Create a cursor for the audio data
-        let cursor = Cursor::new(chunk);
-
-        // Decode audio data and play
-        if let Ok(source) = Decoder::new(cursor) {
-            sink.append(source);
-            sink.play();
-        } else {
-            eprintln!("Failed to decode audio chunk");
+pub async fn playback_audio(rx: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>, sink: Arc<Sink>) {
+    let mut playback_buffer: VecDeque<Vec<u8>> = VecDeque::new();
+    let min_buf = 2;
+    loop {
+        let chunk = rx.lock().await.recv().await;
+        match chunk {
+            Some(data) => {
+                playback_buffer.push_back(data);
+                if playback_buffer.len() >= min_buf {
+                    let audio_chunk = playback_buffer.pop_front();
+                    match audio_chunk {
+                        Some(ac) => {
+                            let cursor = Cursor::new(ac);
+                            if let Ok(source) = Decoder::new(cursor) {
+                                sink.append(source);
+                            }
+                        }
+                        None => {}
+                    }
+                }
+            }
+            None => {
+                // tx was shutdown kill thread
+                break;
+            }
         }
     }
 }

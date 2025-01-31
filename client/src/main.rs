@@ -1,14 +1,16 @@
 use std::env;
 use std::io;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::usize;
 
 use handler::{handle_file_actions, handle_network_communication};
-use ratatui::buffer;
 use ratatui::{backend::CrosstermBackend, Terminal};
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex, Notify};
 
 use crate::{
     app::{App, AppResult},
@@ -18,6 +20,8 @@ use crate::{
     tui::Tui,
 };
 
+use ::rodio::{OutputStream, Sink};
+
 pub mod app;
 pub mod event;
 pub mod handler;
@@ -25,7 +29,7 @@ pub mod lib;
 pub mod tui;
 pub mod ui;
 
-const CHUNK_SIZE: usize = 4096 * 8;
+const CHUNK_SIZE: usize = 10000;
 
 #[tokio::main]
 async fn main() -> AppResult<()> {
@@ -50,46 +54,60 @@ async fn main() -> AppResult<()> {
     let mut tui = Tui::new(terminal, events);
     tui.init()?;
 
-    let (tx, rx) = mpsc::channel(32);
+    let (tx, rx): (mpsc::Sender<Vec<u8>>, mpsc::Receiver<Vec<u8>>) = mpsc::channel(32);
+    let rx = Arc::new(Mutex::new(rx));
 
-    let playback_handle = {
-        let rx = Arc::new(Mutex::new(rx));
-        thread::spawn(move || Playback::playback_audio(rx))
-    };
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let sink = Arc::new(Sink::try_new(&stream_handle).unwrap());
 
-    // Start independent thread for audio playback
-    let network_handle = {
-        let a_stream = Arc::new(Mutex::new(a_stream));
-        let tx = tx.clone();
-        thread::spawn(move || loop {
-            {
-                let mut buffer = vec![0; CHUNK_SIZE];
-                let mut lock_stream = a_stream.lock().unwrap();
-                match lock_stream.try_read(&mut buffer) {
-                    Ok(size) if size > 0 => {
-                        if tx.blocking_send(buffer).is_err() {
-                            eprintln!("Failed to send audio to playback_handle");
-                            break;
-                        }
-                    }
-                    Ok(_) => {
-                        continue;
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // no new data in socket
-                        continue;
-                    }
-                    Err(err) => {
-                        eprintln!("Failed to read from stream: {}", err);
+    tokio::spawn({
+        let rx = Arc::clone(&rx);
+        let sink = Arc::clone(&sink);
+        async move {
+            Playback::playback_audio(rx, sink).await;
+        }
+    });
+
+    let shutdown_notify = Arc::new(Notify::new());
+
+    let shutdown_signal = shutdown_notify.clone();
+    tokio::spawn(async move {
+        let tx = tx.clone(); // Clone the channel sender.
+        let mut buffer = vec![0; CHUNK_SIZE];
+        let mut reader = BufReader::new(a_stream);
+        loop {
+            // Perform the actual read from the stream
+            tokio::select! {
+            result = reader.read(&mut buffer) => {
+            match result {
+                Ok(0) => {
+                    // Stream closed
+                    eprintln!("Stream closed");
+                    break;
+                }
+                Ok(size) => {
+                    // Truncate to the actual read size before sending
+                    buffer.truncate(size);
+                    if let Err(e) = tx.send(buffer.clone()).await {
+                        eprintln!("Failed to send audio to playback: {}", e);
                         break;
                     }
-                };
+                }
+                Err(e) => {
+                    eprintln!("Failed to read from stream: {}", e);
+                    break;
+                }
+            }}
+            _ = shutdown_signal.notified() => {
+                        drop(tx);
+                        break;
+                }
             }
-        })
-    };
+        }
+    });
 
     // Start the TUI loop.
-    while app.running {
+    while app.running.load(Ordering::Relaxed) {
         // Render the user interface.
         tui.draw(&mut app)?;
         // Handle events.
@@ -102,9 +120,7 @@ async fn main() -> AppResult<()> {
             Event::FileTransfer => handle_file_actions(&mut app).await?,
         }
     }
-
-    playback_handle.join().unwrap();
-    network_handle.join().unwrap();
+    shutdown_notify.notify_waiters();
     // Exit the user interface.
     tui.exit()?;
     Ok(())
